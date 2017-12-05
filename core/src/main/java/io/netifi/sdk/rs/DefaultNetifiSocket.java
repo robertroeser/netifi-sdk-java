@@ -1,6 +1,7 @@
 package io.netifi.sdk.rs;
 
 import io.netifi.sdk.auth.SessionUtil;
+import io.netifi.sdk.balancer.LoadBalancedRSocketSupplier;
 import io.netifi.sdk.frames.RouteDestinationFlyweight;
 import io.netifi.sdk.frames.RouteType;
 import io.netifi.sdk.frames.RoutingFlyweight;
@@ -21,12 +22,12 @@ public class DefaultNetifiSocket implements NetifiSocket {
   private final MonoProcessor<Void> onClose;
   private final ByteBuf route;
   private long accessKey;
-  private String fromDestination;
-  private TimebasedIdGenerator generator;
-  private ReconnectingRSocket reconnectingRSocket;
+  private final String fromDestination;
+  private final TimebasedIdGenerator generator;
+  private final LoadBalancedRSocketSupplier rSocketSupplier;
 
   public DefaultNetifiSocket(
-      ReconnectingRSocket reconnectingRSocket,
+      LoadBalancedRSocketSupplier rSocketSupplier,
       long accessKey,
       long fromAccountId,
       String fromDestination,
@@ -35,7 +36,7 @@ public class DefaultNetifiSocket implements NetifiSocket {
       byte[] accessTokenBytes,
       boolean keepalive,
       TimebasedIdGenerator generator) {
-    this.reconnectingRSocket = reconnectingRSocket;
+    this.rSocketSupplier = rSocketSupplier;
     this.accessKey = accessKey;
     this.fromDestination = fromDestination;
     this.generator = generator;
@@ -55,12 +56,12 @@ public class DefaultNetifiSocket implements NetifiSocket {
           route, RouteType.STREAM_GROUP_ROUTE, fromAccountId, group);
     }
 
-    reconnectingRSocket.onClose().doFinally(s -> onClose.onComplete()).subscribe();
+    rSocketSupplier.onClose().doFinally(s -> onClose.onComplete()).subscribe();
   }
 
   @Override
   public double availability() {
-    return reconnectingRSocket.availability();
+    return 1.0;
   }
 
   public ByteBuf getRoute() {
@@ -76,13 +77,14 @@ public class DefaultNetifiSocket implements NetifiSocket {
 
       int length = RoutingFlyweight.computeLength(true, fromDestination, route, metadataToWrap);
 
-      return reconnectingRSocket
+      SecureRSocket secureRSocket = rSocketSupplier.get();
+      return secureRSocket
           .getCurrentSessionCounter()
           .flatMap(
               counter -> {
                 long count = counter.incrementAndGet();
 
-                return reconnectingRSocket
+                return secureRSocket
                     .getCurrentSessionToken()
                     .flatMap(
                         key -> {
@@ -101,7 +103,7 @@ public class DefaultNetifiSocket implements NetifiSocket {
                               route,
                               metadataToWrap);
 
-                          return reconnectingRSocket.fireAndForget(
+                          return secureRSocket.fireAndForget(
                               ByteBufPayload.create(payload.sliceData(), metadata));
                         });
               });
@@ -119,13 +121,14 @@ public class DefaultNetifiSocket implements NetifiSocket {
       ByteBuf data = payload.sliceData();
       int length = RoutingFlyweight.computeLength(true, fromDestination, route, metadataToWrap);
 
-      return reconnectingRSocket
+      SecureRSocket secureRSocket = rSocketSupplier.get();
+      return secureRSocket
           .getCurrentSessionCounter()
           .flatMap(
               counter -> {
                 long count = counter.incrementAndGet();
 
-                return reconnectingRSocket
+                return secureRSocket
                     .getCurrentSessionToken()
                     .flatMap(
                         key -> {
@@ -144,7 +147,7 @@ public class DefaultNetifiSocket implements NetifiSocket {
                               route,
                               metadataToWrap);
 
-                          return reconnectingRSocket.requestResponse(
+                          return secureRSocket.requestResponse(
                               ByteBufPayload.create(payload.sliceData(), metadata));
                         });
               });
@@ -162,13 +165,14 @@ public class DefaultNetifiSocket implements NetifiSocket {
 
       int length = RoutingFlyweight.computeLength(true, fromDestination, route, metadataToWrap);
 
-      return reconnectingRSocket
+      SecureRSocket secureRSocket = rSocketSupplier.get();
+      return secureRSocket
           .getCurrentSessionCounter()
           .flatMapMany(
               counter -> {
                 long count = counter.incrementAndGet();
 
-                return reconnectingRSocket
+                return secureRSocket
                     .getCurrentSessionToken()
                     .flatMapMany(
                         key -> {
@@ -187,7 +191,7 @@ public class DefaultNetifiSocket implements NetifiSocket {
                               route,
                               metadataToWrap);
 
-                          return reconnectingRSocket.requestStream(
+                          return secureRSocket.requestStream(
                               ByteBufPayload.create(payload.sliceData(), metadata));
                         });
               });
@@ -199,6 +203,7 @@ public class DefaultNetifiSocket implements NetifiSocket {
 
   @Override
   public Flux<Payload> requestChannel(Publisher<Payload> payloads) {
+    SecureRSocket secureRSocket = rSocketSupplier.get();
     ByteBuf route = getRoute();
     Flux<Payload> payloadFlux =
         Flux.from(payloads)
@@ -209,13 +214,13 @@ public class DefaultNetifiSocket implements NetifiSocket {
                   int length =
                       RoutingFlyweight.computeLength(true, fromDestination, route, metadataToWrap);
 
-                  return reconnectingRSocket
+                  return secureRSocket
                       .getCurrentSessionCounter()
                       .flatMapMany(
                           counter -> {
                             long count = counter.incrementAndGet();
 
-                            return reconnectingRSocket
+                            return secureRSocket
                                 .getCurrentSessionToken()
                                 .map(
                                     key -> {
@@ -241,7 +246,7 @@ public class DefaultNetifiSocket implements NetifiSocket {
                           });
                 });
 
-    return reconnectingRSocket.requestChannel(payloadFlux);
+    return secureRSocket.requestChannel(payloadFlux);
   }
 
   @Override
@@ -252,14 +257,15 @@ public class DefaultNetifiSocket implements NetifiSocket {
       ByteBuf data = payload.sliceData();
 
       int length = RoutingFlyweight.computeLength(true, fromDestination, route);
+      SecureRSocket secureRSocket = rSocketSupplier.get();
 
-      return reconnectingRSocket
+      return secureRSocket
           .getCurrentSessionCounter()
           .flatMap(
               counter -> {
                 long count = counter.incrementAndGet();
 
-                return reconnectingRSocket
+                return secureRSocket
                     .getCurrentSessionToken()
                     .flatMap(
                         key -> {
@@ -278,7 +284,7 @@ public class DefaultNetifiSocket implements NetifiSocket {
                               route,
                               unwrappedMetadata);
 
-                          return reconnectingRSocket.metadataPush(
+                          return secureRSocket.metadataPush(
                               ByteBufPayload.create(payload.sliceData(), metadata));
                         });
               });

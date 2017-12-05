@@ -5,7 +5,6 @@ import io.netifi.testing.protobuf.*;
 import java.time.Duration;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.CountDownLatch;
-import java.util.concurrent.ForkJoinPool;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.function.Function;
 import org.junit.BeforeClass;
@@ -39,7 +38,6 @@ public class ProteusLocalRoutingIntegrationTest {
             .keepalive(false)
             .group("test.server")
             .destination("server")
-            .executor(ForkJoinPool.commonPool())
             .accountId(Long.MAX_VALUE)
             .accessKey(accessKey)
             .accessToken(accessToken)
@@ -52,7 +50,6 @@ public class ProteusLocalRoutingIntegrationTest {
             .keepalive(false)
             .group("test.client")
             .destination("client")
-            .executor(ForkJoinPool.commonPool())
             .accountId(Long.MAX_VALUE)
             .accessKey(accessKey)
             .accessToken(accessToken)
@@ -137,12 +134,12 @@ public class ProteusLocalRoutingIntegrationTest {
     long count =
         simpleServiceClient
             .bidiStreamingRpc(map)
-            .doOnNext(
-                simpleResponse ->
-                    System.out.println(
-                        Thread.currentThread().getName()
-                            + " - "
-                            + simpleResponse.getResponseMessage()))
+            //            .doOnNext(
+            //                simpleResponse ->
+            //                    System.out.println(
+            //                        Thread.currentThread().getName()
+            //                            + " - "
+            //                            + simpleResponse.getResponseMessage()))
             .count()
             .block();
 

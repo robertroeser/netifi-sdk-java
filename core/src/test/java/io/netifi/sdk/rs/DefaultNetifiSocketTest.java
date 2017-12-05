@@ -1,5 +1,6 @@
 package io.netifi.sdk.rs;
 
+import io.netifi.sdk.balancer.LoadBalancedRSocketSupplier;
 import io.netifi.sdk.frames.RouteDestinationFlyweight;
 import io.netifi.sdk.frames.RoutingFlyweight;
 import io.netifi.sdk.util.TimebasedIdGenerator;
@@ -24,10 +25,14 @@ public class DefaultNetifiSocketTest {
     byte[] token = new byte[20];
     ThreadLocalRandom.current().nextBytes(token);
     MonoProcessor<Void> onClose = MonoProcessor.create();
-    ReconnectingRSocket mock = Mockito.mock(ReconnectingRSocket.class);
+    WeightedReconnectingRSocket mock = Mockito.mock(WeightedReconnectingRSocket.class);
     Mockito.when(mock.onClose()).thenReturn(onClose);
     Mockito.when(mock.getCurrentSessionCounter()).thenReturn(Mono.just(new AtomicLong()));
     Mockito.when(mock.getCurrentSessionToken()).thenReturn(Mono.just(token));
+
+    LoadBalancedRSocketSupplier supplier = Mockito.mock(LoadBalancedRSocketSupplier.class);
+    Mockito.when(supplier.get()).thenReturn(mock);
+    Mockito.when(supplier.onClose()).thenReturn(Mono.empty());
 
     Mockito.when(mock.requestResponse(Mockito.any(Payload.class)))
         .then(
@@ -42,7 +47,7 @@ public class DefaultNetifiSocketTest {
 
     DefaultNetifiSocket netifiSocket =
         new DefaultNetifiSocket(
-            mock,
+            supplier,
             Long.MAX_VALUE,
             Long.MAX_VALUE,
             "fromDest",
@@ -66,7 +71,7 @@ public class DefaultNetifiSocketTest {
     byte[] token = new byte[20];
     ThreadLocalRandom.current().nextBytes(token);
     MonoProcessor<Void> onClose = MonoProcessor.create();
-    ReconnectingRSocket mock = Mockito.mock(ReconnectingRSocket.class);
+    WeightedReconnectingRSocket mock = Mockito.mock(WeightedReconnectingRSocket.class);
     Mockito.when(mock.onClose()).thenReturn(onClose);
     Mockito.when(mock.getCurrentSessionCounter()).thenReturn(Mono.just(new AtomicLong()));
     Mockito.when(mock.getCurrentSessionToken()).thenReturn(Mono.just(token));
@@ -82,9 +87,13 @@ public class DefaultNetifiSocketTest {
               return Mono.empty();
             });
 
+    LoadBalancedRSocketSupplier supplier = Mockito.mock(LoadBalancedRSocketSupplier.class);
+    Mockito.when(supplier.get()).thenReturn(mock);
+    Mockito.when(supplier.onClose()).thenReturn(Mono.empty());
+
     DefaultNetifiSocket netifiSocket =
         new DefaultNetifiSocket(
-            mock,
+            supplier,
             Long.MAX_VALUE,
             Long.MAX_VALUE,
             "fromDest",
@@ -108,7 +117,7 @@ public class DefaultNetifiSocketTest {
     byte[] token = new byte[20];
     ThreadLocalRandom.current().nextBytes(token);
     MonoProcessor<Void> onClose = MonoProcessor.create();
-    ReconnectingRSocket mock = Mockito.mock(ReconnectingRSocket.class);
+    WeightedReconnectingRSocket mock = Mockito.mock(WeightedReconnectingRSocket.class);
     Mockito.when(mock.onClose()).thenReturn(onClose);
     Mockito.when(mock.getCurrentSessionCounter()).thenReturn(Mono.just(new AtomicLong()));
     Mockito.when(mock.getCurrentSessionToken()).thenReturn(Mono.just(token));
@@ -124,9 +133,13 @@ public class DefaultNetifiSocketTest {
               return Flux.range(1, 100).map(i -> ByteBufPayload.create("here's the payload " + i));
             });
 
+    LoadBalancedRSocketSupplier supplier = Mockito.mock(LoadBalancedRSocketSupplier.class);
+    Mockito.when(supplier.get()).thenReturn(mock);
+    Mockito.when(supplier.onClose()).thenReturn(Mono.empty());
+
     DefaultNetifiSocket netifiSocket =
         new DefaultNetifiSocket(
-            mock,
+            supplier,
             Long.MAX_VALUE,
             Long.MAX_VALUE,
             "fromDest",
@@ -150,7 +163,7 @@ public class DefaultNetifiSocketTest {
     byte[] token = new byte[20];
     ThreadLocalRandom.current().nextBytes(token);
     MonoProcessor<Void> onClose = MonoProcessor.create();
-    ReconnectingRSocket mock = Mockito.mock(ReconnectingRSocket.class);
+    WeightedReconnectingRSocket mock = Mockito.mock(WeightedReconnectingRSocket.class);
     Mockito.when(mock.onClose()).thenReturn(onClose);
     Mockito.when(mock.getCurrentSessionCounter()).thenReturn(Mono.just(new AtomicLong()));
     Mockito.when(mock.getCurrentSessionToken()).thenReturn(Mono.just(token));
@@ -173,9 +186,13 @@ public class DefaultNetifiSocketTest {
                               .map(i -> ByteBufPayload.create("here's the payload " + i)));
             });
 
+    LoadBalancedRSocketSupplier supplier = Mockito.mock(LoadBalancedRSocketSupplier.class);
+    Mockito.when(supplier.get()).thenReturn(mock);
+    Mockito.when(supplier.onClose()).thenReturn(Mono.empty());
+
     DefaultNetifiSocket netifiSocket =
         new DefaultNetifiSocket(
-            mock,
+            supplier,
             Long.MAX_VALUE,
             Long.MAX_VALUE,
             "fromDest",

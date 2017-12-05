@@ -1,5 +1,6 @@
 package io.netifi.sdk.presence;
 
+import io.netifi.sdk.balancer.LoadBalancedRSocketSupplier;
 import io.netifi.sdk.frames.DestinationAvailResult;
 import io.netifi.sdk.frames.RouteDestinationFlyweight;
 import io.netifi.sdk.frames.RouteType;
@@ -8,16 +9,18 @@ import io.netifi.sdk.util.TimebasedIdGenerator;
 import io.netty.buffer.ByteBuf;
 import io.netty.buffer.Unpooled;
 import io.rsocket.Payload;
-import io.rsocket.RSocket;
 import io.rsocket.util.ByteBufPayload;
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import reactor.core.Disposable;
 import reactor.core.publisher.Mono;
 import reactor.core.publisher.ReplayProcessor;
 
 /** Implementation of {@link PresenceNotifier} */
 public class DefaultPresenceNotifier implements PresenceNotifier {
+  private static final Logger logger = LoggerFactory.getLogger(DefaultPresenceNotifier.class);
   private static final byte[] EMPTY = new byte[0];
   private static final Object EVENT = new Object();
   final Set<PresenceNotificationInfo> presenceInfo;
@@ -26,22 +29,22 @@ public class DefaultPresenceNotifier implements PresenceNotifier {
   private final ReplayProcessor onChange;
   private final long fromAccessKey;
   private final String fromDestination;
-  private final RSocket reconnectingRSocket;
+  private final LoadBalancedRSocketSupplier rSocketSupplier;
 
   public DefaultPresenceNotifier(
       TimebasedIdGenerator idGenerator,
       long fromAccessKey,
       String fromDestination,
-      RSocket reconnectingRSocket) {
+      LoadBalancedRSocketSupplier rSocketSupplier) {
     this.onChange = ReplayProcessor.cacheLast();
     this.idGenerator = idGenerator;
     this.fromAccessKey = fromAccessKey;
     this.fromDestination = fromDestination;
-    this.reconnectingRSocket = reconnectingRSocket;
     this.presenceInfo = ConcurrentHashMap.newKeySet();
     this.watchingSubscriptions = new ConcurrentHashMap<>();
+    this.rSocketSupplier = rSocketSupplier;
 
-    reconnectingRSocket
+    rSocketSupplier
         .onClose()
         .doFinally(
             s -> {
@@ -53,15 +56,21 @@ public class DefaultPresenceNotifier implements PresenceNotifier {
   }
 
   public void watch(long accountId, String group) {
+    if (logger.isTraceEnabled()) {
+      logger.trace("watching account id {} and group {}", accountId, group);
+    }
+
     watchingSubscriptions.computeIfAbsent(
         groupKey(accountId, group),
         k -> {
+          logger.debug("creating new watcher account id {} and group {}", accountId, group);
           ByteBuf route = createGroupRoute(RouteType.PRESENCE_GROUP_QUERY, accountId, group);
           ByteBuf routingInformation = createRoutingInformation(route, fromDestination);
           Payload payload = ByteBufPayload.create(Unpooled.EMPTY_BUFFER, routingInformation);
 
           Disposable subscribe =
-              reconnectingRSocket
+              rSocketSupplier
+                  .get()
                   .requestStream(payload)
                   .doOnNext(
                       p -> {
@@ -71,8 +80,10 @@ public class DefaultPresenceNotifier implements PresenceNotifier {
                           PresenceNotificationInfo presenceNotificationInfo =
                               new PresenceNotificationInfo(null, accountId, group);
                           if (found) {
+                            logger.debug("account id {} and group {} available", accountId, group);
                             presenceInfo.add(presenceNotificationInfo);
                           } else {
+                            logger.debug("account id {} and group {} available", accountId, group);
                             presenceInfo.remove(presenceNotificationInfo);
                           }
 
@@ -83,6 +94,8 @@ public class DefaultPresenceNotifier implements PresenceNotifier {
                       })
                   .doFinally(
                       s -> {
+                        logger.debug(
+                            "removing watcher for account id {} and group {}", accountId, group);
                         watchingSubscriptions.remove(k);
                       })
                   .subscribe();
@@ -99,6 +112,8 @@ public class DefaultPresenceNotifier implements PresenceNotifier {
   }
 
   public void watch(long accountId, String destination, String group) {
+    logger.debug(
+        "watching account id {}, group {}, and destination {}", accountId, group, destination);
     watchingSubscriptions.computeIfAbsent(
         groupKey(accountId, group),
         k -> {
@@ -108,7 +123,8 @@ public class DefaultPresenceNotifier implements PresenceNotifier {
           Payload payload = ByteBufPayload.create(Unpooled.EMPTY_BUFFER, routingInformation);
 
           Disposable subscribe =
-              reconnectingRSocket
+              rSocketSupplier
+                  .get()
                   .requestStream(payload)
                   .doOnNext(
                       p -> {
@@ -129,6 +145,11 @@ public class DefaultPresenceNotifier implements PresenceNotifier {
                       })
                   .doFinally(
                       s -> {
+                        logger.debug(
+                            "removing watcher for account id {}, group {} and destination {}",
+                            accountId,
+                            group,
+                            destination);
                         watchingSubscriptions.remove(k);
                       })
                   .subscribe();

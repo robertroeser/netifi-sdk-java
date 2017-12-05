@@ -1,7 +1,10 @@
 package io.netifi.sdk.presence;
 
 import io.netifi.sdk.Netifi;
+import io.netifi.sdk.auth.SessionUtil;
+import io.netifi.sdk.balancer.LoadBalancedRSocketSupplier;
 import io.netifi.sdk.frames.DestinationSetupFlyweight;
+import io.netifi.sdk.rs.SecureRSocket;
 import io.netifi.sdk.util.TimebasedIdGenerator;
 import io.netty.buffer.ByteBuf;
 import io.netty.buffer.Unpooled;
@@ -12,11 +15,15 @@ import io.rsocket.RSocket;
 import io.rsocket.RSocketFactory;
 import io.rsocket.transport.netty.client.TcpClientTransport;
 import io.rsocket.util.ByteBufPayload;
+import io.rsocket.util.RSocketProxy;
 import java.time.Duration;
 import java.util.Base64;
+import java.util.concurrent.atomic.AtomicLong;
 import org.junit.Assert;
 import org.junit.Ignore;
 import org.junit.Test;
+import org.mockito.Mockito;
+import reactor.core.publisher.Mono;
 import reactor.core.scheduler.Schedulers;
 import reactor.ipc.netty.tcp.TcpClient;
 
@@ -29,10 +36,14 @@ public class DefaultPresenceNotifierTest {
   @Test
   public void testGroupPresence() throws Exception {
 
-    RSocket rSocket = createRSocketConnection("tester", "test.groupPresence", 8001);
+    SecureRSocket rSocket = createRSocketConnection("tester", "test.groupPresence", 8001);
+
+    LoadBalancedRSocketSupplier supplier = Mockito.mock(LoadBalancedRSocketSupplier.class);
+    Mockito.when(supplier.get()).thenReturn(rSocket);
+    Mockito.when(supplier.onClose()).thenReturn(Mono.empty());
 
     DefaultPresenceNotifier handler =
-        new DefaultPresenceNotifier(new TimebasedIdGenerator(1), accessKey, "tester", rSocket);
+        new DefaultPresenceNotifier(new TimebasedIdGenerator(1), accessKey, "tester", supplier);
 
     handler.notify(Long.MAX_VALUE, "test.groupPresence").block();
 
@@ -44,7 +55,7 @@ public class DefaultPresenceNotifierTest {
             .destination("test1")
             .group("anotherGroup")
             .host("127.0.0.1")
-            .port(8002)
+            .port(8001)
             .build();
 
     handler.notify(Long.MAX_VALUE, "anotherGroup").block();
@@ -52,7 +63,7 @@ public class DefaultPresenceNotifierTest {
     try {
       handler
           .notify(Long.MAX_VALUE, "anotherGroup2")
-          .timeout(Duration.ofSeconds(8), Schedulers.elastic())
+          .timeout(Duration.ofSeconds(4), Schedulers.elastic())
           .block();
       Assert.fail();
     } catch (Throwable t) {
@@ -76,31 +87,35 @@ public class DefaultPresenceNotifierTest {
 
     build.close().block();
 
-    try {
-      handler.notify(Long.MAX_VALUE, "anotherGroup").timeout(Duration.ofSeconds(8)).block();
-      Assert.fail();
-    } catch (Throwable t) {
-      if (!t.getMessage().contains("Timeout")) {
-        Assert.fail();
-      }
-    }
+    //    try {
+    //      handler.notify(Long.MAX_VALUE, "anotherGroup").timeout(Duration.ofSeconds(8)).block();
+    //      Assert.fail();
+    //    } catch (Throwable t) {
+    //      if (!t.getMessage().contains("Timeout")) {
+    //        Assert.fail();
+    //      }
+    //    }
   }
 
   @Test
   public void testDestinationPresence() {
-    RSocket rSocket = createRSocketConnection("tester", "test.destinationPresence", 8001);
+    SecureRSocket rSocket = createRSocketConnection("tester", "test.destinationPresence", 8001);
+
+    LoadBalancedRSocketSupplier supplier = Mockito.mock(LoadBalancedRSocketSupplier.class);
+    Mockito.when(supplier.get()).thenReturn(rSocket);
+    Mockito.when(supplier.onClose()).thenReturn(Mono.empty());
 
     DefaultPresenceNotifier handler =
-        new DefaultPresenceNotifier(new TimebasedIdGenerator(1), accessKey, "tester", rSocket);
+        new DefaultPresenceNotifier(new TimebasedIdGenerator(1), accessKey, "tester", supplier);
 
     handler.notify(Long.MAX_VALUE, "tester", "test.destinationPresence").block();
   }
 
-  public RSocket createRSocketConnection(String destination, String group, int port) {
+  public SecureRSocket createRSocketConnection(String destination, String group, int port) {
     return createRSocketConnection(destination, group, new AbstractRSocket() {}, port);
   }
 
-  public RSocket createRSocketConnection(
+  public SecureRSocket createRSocketConnection(
       String destination, String group, RSocket handler, int port) {
     int length = DestinationSetupFlyweight.computeLength(false, destination, group);
 
@@ -138,6 +153,27 @@ public class DefaultPresenceNotifierTest {
             .start()
             .block();
 
-    return client;
+    return new SecureRSocketWrapper(client);
+  }
+
+  class SecureRSocketWrapper extends RSocketProxy implements SecureRSocket {
+    public SecureRSocketWrapper(RSocket source) {
+      super(source);
+    }
+
+    @Override
+    public SessionUtil getSessionUtil() {
+      return null;
+    }
+
+    @Override
+    public Mono<AtomicLong> getCurrentSessionCounter() {
+      return null;
+    }
+
+    @Override
+    public Mono<byte[]> getCurrentSessionToken() {
+      return null;
+    }
   }
 }
